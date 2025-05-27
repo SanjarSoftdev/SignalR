@@ -6,73 +6,98 @@
 @inject IJSRuntime JS
 @implements IDisposable
 
-<h1>Soccer Game</h1>
+<div class="mobile-container">
+    <h1>Soccer Game</h1>
 
-@if (!joined)
-{
-    <div class="join-game">
-        <input @bind="playerName" placeholder="Your name" />
-        <button @onclick="JoinGame">Join Game</button>
-    </div>
-}
-else if (!gameStarted)
-{
-    <div class="waiting-message">
-        <p>Waiting for opponent to join...</p>
-    </div>
-}
-else
-{
-    <div class="game-container">
-        <div class="score-board">
-            @foreach (var player in players.Values)
+    @if (!joined)
+    {
+        <div class="join-game">
+            <input @bind="playerName" placeholder="Your name" />
+            <button @onclick="JoinGame" class="btn-primary">Join Game</button>
+        </div>
+    }
+    else if (!gameStarted)
+    {
+        <div class="waiting-message">
+            <p>Waiting for opponent to join...</p>
+        </div>
+    }
+    else
+    {
+        <div class="game-container">
+            <div class="score-board">
+                @foreach (var player in players.Values)
+                {
+                    <div class="score-item @(player.Id == myId ? "my-score" : "opponent-score")">
+                        <span class="player-name">@player.Name</span>
+                        <span class="score">@player.Score</span>
+                    </div>
+                }
+            </div>
+
+            <div class="field-container">
+                <div class="soccer-field" 
+                     @onkeydown="HandleKeyDown" 
+                     @ontouchstart="HandleTouchStart"
+                     @ontouchmove="HandleTouchMove"
+                     @ontouchend="HandleTouchEnd"
+                     tabindex="0">
+                    <!-- Field markings -->
+                    <div class="center-circle"></div>
+                    <div class="center-line"></div>
+                    <div class="left-goal"></div>
+                    <div class="right-goal"></div>
+
+                    <!-- Players -->
+                    @foreach (var player in players.Values)
+                    {
+                        var x = (player.Position.X / fieldWidth) * 100;
+                        var y = (player.Position.Y / fieldHeight) * 100;
+                        <div class="player @(player.Side == PlayerSide.Left ? "left-player" : "right-player")"
+                             style="left: @(x)%; top: @(y)%">
+                            @player.Name.Substring(0, 1)
+                        </div>
+                    }
+
+                    <!-- Ball -->
+                    @if (gameState?.Ball != null)
+                    {
+                        var ballX = (gameState.Ball.Position.X / fieldWidth) * 100;
+                        var ballY = (gameState.Ball.Position.Y / fieldHeight) * 100;
+                        <div class="ball" style="left: @(ballX)%; top: @(ballY)%"></div>
+                    }
+                </div>
+            </div>
+
+            <!-- Mobile Controls -->
+            <div class="mobile-controls">
+                <div class="control-pad">
+                    <button @ontouchstart="() => HandleDirectionTouch(new Vector2(0, -1))" 
+                            @ontouchend="() => HandleDirectionTouch(Vector2.Zero)"
+                            class="control-btn up">↑</button>
+                    <button @ontouchstart="() => HandleDirectionTouch(new Vector2(-1, 0))" 
+                            @ontouchend="() => HandleDirectionTouch(Vector2.Zero)"
+                            class="control-btn left">←</button>
+                    <button @ontouchstart="() => HandleDirectionTouch(new Vector2(0, 1))" 
+                            @ontouchend="() => HandleDirectionTouch(Vector2.Zero)"
+                            class="control-btn down">↓</button>
+                    <button @ontouchstart="() => HandleDirectionTouch(new Vector2(1, 0))" 
+                            @ontouchend="() => HandleDirectionTouch(Vector2.Zero)"
+                            class="control-btn right">→</button>
+                </div>
+            </div>
+
+            @if (gameState?.Winner != null)
             {
-                <div class="score-item @(player.Id == myId ? "my-score" : "opponent-score")">
-                    <span class="player-name">@player.Name</span>
-                    <span class="score">@player.Score</span>
+                <div class="game-over">
+                    <h2>Game Over!</h2>
+                    <p>@(players[gameState.Winner].Name) wins!</p>
+                    <button @onclick="ResetGame" class="btn-primary">Play Again</button>
                 </div>
             }
         </div>
-
-        <div class="field-container">
-            <div class="soccer-field" @onkeydown="HandleKeyDown" tabindex="0">
-                <!-- Field markings -->
-                <div class="center-circle"></div>
-                <div class="center-line"></div>
-                <div class="left-goal"></div>
-                <div class="right-goal"></div>
-
-                <!-- Players -->
-                @foreach (var player in players.Values)
-                {
-                    var x = (player.Position.X / fieldWidth) * 100;
-                    var y = (player.Position.Y / fieldHeight) * 100;
-                    <div class="player @(player.Side == PlayerSide.Left ? "left-player" : "right-player")"
-                         style="left: @(x)%; top: @(y)%">
-                        @player.Name.Substring(0, 1)
-                    </div>
-                }
-
-                <!-- Ball -->
-                @if (gameState?.Ball != null)
-                {
-                    var ballX = (gameState.Ball.Position.X / fieldWidth) * 100;
-                    var ballY = (gameState.Ball.Position.Y / fieldHeight) * 100;
-                    <div class="ball" style="left: @(ballX)%; top: @(ballY)%"></div>
-                }
-            </div>
-        </div>
-
-        @if (gameState?.Winner != null)
-        {
-            <div class="game-over">
-                <h2>Game Over!</h2>
-                <p>@(players[gameState.Winner].Name) wins!</p>
-                <button @onclick="ResetGame">Play Again</button>
-            </div>
-        }
-    </div>
-}
+    }
+</div>
 
 @code {
     private HubConnection hubConnection;
@@ -85,6 +110,8 @@ else
     private const float fieldWidth = 20f;
     private const float fieldHeight = 10f;
     private System.Threading.Timer gameLoopTimer;
+    private Vector2 currentDirection = Vector2.Zero;
+    private TouchPoint? touchStart;
 
     protected override async Task OnInitializedAsync()
     {
@@ -153,13 +180,6 @@ else
         await hubConnection.StartAsync();
     }
 
-    private async Task JoinGame()
-    {
-        await hubConnection.SendAsync("JoinGame", playerName);
-        joined = true;
-        myId = hubConnection.ConnectionId;
-    }
-
     private async Task HandleKeyDown(KeyboardEventArgs e)
     {
         if (!gameStarted || gameState?.Winner != null)
@@ -184,14 +204,72 @@ else
 
         if (direction != Vector2.Zero)
         {
+            currentDirection = direction;
+            await MovePlayer(direction);
+        }
+    }
+
+    private async Task HandleDirectionTouch(Vector2 direction)
+    {
+        if (!gameStarted || gameState?.Winner != null)
+            return;
+
+        currentDirection = direction;
+        await MovePlayer(direction);
+    }
+
+    private async Task HandleTouchStart(TouchEventArgs e)
+    {
+        if (e.Touches.Any())
+        {
+            touchStart = e.Touches.First();
+        }
+    }
+
+    private async Task HandleTouchMove(TouchEventArgs e)
+    {
+        if (!gameStarted || gameState?.Winner != null || touchStart == null || !e.Touches.Any())
+            return;
+
+        var touch = e.Touches.First();
+        var deltaX = touch.ClientX - touchStart.ClientX;
+        var deltaY = touch.ClientY - touchStart.ClientY;
+        
+        // Normalize the direction vector
+        var length = Math.Sqrt(deltaX * deltaX + deltaY * deltaY);
+        if (length > 0)
+        {
+            var direction = new Vector2(
+                (float)(deltaX / length),
+                (float)(deltaY / length)
+            );
+            await MovePlayer(direction);
+        }
+    }
+
+    private void HandleTouchEnd(TouchEventArgs e)
+    {
+        touchStart = null;
+        currentDirection = Vector2.Zero;
+    }
+
+    private async Task MovePlayer(Vector2 direction)
+    {
+        if (direction != Vector2.Zero)
+        {
             await hubConnection.SendAsync("MovePlayer", direction);
         }
     }
 
     private void StartGameLoop()
     {
+        gameLoopTimer?.Dispose();
         gameLoopTimer = new System.Threading.Timer(async _ =>
         {
+            if (currentDirection != Vector2.Zero)
+            {
+                await MovePlayer(currentDirection);
+            }
             await hubConnection.SendAsync("UpdateGameState");
         }, null, 0, 16); // ~60 FPS
     }
@@ -215,6 +293,13 @@ else
         }
     }
 
+    private async Task JoinGame()
+    {
+        await hubConnection.SendAsync("JoinGame", playerName);
+        joined = true;
+        myId = hubConnection.ConnectionId;
+    }
+
     public void Dispose()
     {
         StopGameLoop();
@@ -223,38 +308,80 @@ else
 }
 
 <style>
+    .mobile-container {
+        max-width: 100%;
+        padding: 10px;
+        margin: 0 auto;
+    }
+
+    h1 {
+        text-align: center;
+        font-size: 1.5rem;
+        margin: 10px 0;
+    }
+
     .join-game {
         display: flex;
+        flex-direction: column;
         gap: 10px;
         margin: 20px 0;
+        padding: 0 20px;
+    }
+
+    .join-game input {
+        padding: 10px;
+        font-size: 1rem;
+        border: 1px solid #ccc;
+        border-radius: 4px;
+    }
+
+    .btn-primary {
+        background-color: #2196f3;
+        color: white;
+        border: none;
+        padding: 12px 20px;
+        border-radius: 4px;
+        font-size: 1rem;
+        cursor: pointer;
+    }
+
+    .btn-primary:hover {
+        background-color: #1976d2;
     }
 
     .waiting-message {
         text-align: center;
         margin: 20px 0;
-        font-size: 1.2em;
+        font-size: 1.2rem;
+        padding: 20px;
+        background-color: #f5f5f5;
+        border-radius: 8px;
     }
 
     .game-container {
         display: flex;
         flex-direction: column;
         align-items: center;
-        gap: 20px;
+        gap: 15px;
+        width: 100%;
     }
 
     .score-board {
         display: flex;
-        gap: 40px;
-        font-size: 1.5em;
-        margin-bottom: 20px;
+        justify-content: space-around;
+        width: 100%;
+        padding: 10px;
+        background-color: #f5f5f5;
+        border-radius: 8px;
     }
 
     .score-item {
         display: flex;
         flex-direction: column;
         align-items: center;
-        padding: 10px 20px;
+        padding: 10px;
         border-radius: 8px;
+        min-width: 100px;
     }
 
     .my-score {
@@ -267,10 +394,13 @@ else
 
     .field-container {
         position: relative;
-        width: 800px;
-        height: 400px;
+        width: 100%;
+        max-width: 500px;
+        aspect-ratio: 2/1;
         border: 2px solid #333;
         background-color: #4caf50;
+        border-radius: 8px;
+        overflow: hidden;
     }
 
     .soccer-field {
@@ -278,6 +408,7 @@ else
         width: 100%;
         height: 100%;
         outline: none;
+        touch-action: none;
     }
 
     .center-circle {
@@ -285,8 +416,8 @@ else
         left: 50%;
         top: 50%;
         transform: translate(-50%, -50%);
-        width: 100px;
-        height: 100px;
+        width: 20%;
+        aspect-ratio: 1/1;
         border: 2px solid white;
         border-radius: 50%;
     }
@@ -304,8 +435,8 @@ else
         position: absolute;
         top: 50%;
         transform: translateY(-50%);
-        width: 20px;
-        height: 120px;
+        width: 4%;
+        height: 30%;
         background-color: white;
     }
 
@@ -319,8 +450,8 @@ else
 
     .player {
         position: absolute;
-        width: 30px;
-        height: 30px;
+        width: 8%;
+        aspect-ratio: 1/1;
         border-radius: 50%;
         display: flex;
         align-items: center;
@@ -328,6 +459,7 @@ else
         color: white;
         font-weight: bold;
         transform: translate(-50%, -50%);
+        font-size: clamp(12px, 2vw, 16px);
     }
 
     .left-player {
@@ -340,37 +472,94 @@ else
 
     .ball {
         position: absolute;
-        width: 20px;
-        height: 20px;
+        width: 5%;
+        aspect-ratio: 1/1;
         background-color: white;
         border-radius: 50%;
         transform: translate(-50%, -50%);
         box-shadow: 0 2px 4px rgba(0,0,0,0.2);
     }
 
+    .mobile-controls {
+        width: 100%;
+        max-width: 300px;
+        margin-top: 20px;
+    }
+
+    .control-pad {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        grid-template-rows: repeat(3, 1fr);
+        gap: 5px;
+        aspect-ratio: 1/1;
+    }
+
+    .control-btn {
+        background-color: rgba(255, 255, 255, 0.2);
+        border: 2px solid rgba(255, 255, 255, 0.4);
+        border-radius: 8px;
+        color: white;
+        font-size: 1.5rem;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+        user-select: none;
+        -webkit-user-select: none;
+        touch-action: manipulation;
+    }
+
+    .control-btn:active {
+        background-color: rgba(255, 255, 255, 0.4);
+    }
+
+    .up { grid-column: 2; grid-row: 1; }
+    .left { grid-column: 1; grid-row: 2; }
+    .down { grid-column: 2; grid-row: 3; }
+    .right { grid-column: 3; grid-row: 2; }
+
     .game-over {
-        position: absolute;
+        position: fixed;
         top: 50%;
         left: 50%;
         transform: translate(-50%, -50%);
-        background-color: rgba(255,255,255,0.9);
+        background-color: rgba(255,255,255,0.95);
         padding: 20px;
         border-radius: 8px;
         text-align: center;
         box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        z-index: 1000;
+        width: 80%;
+        max-width: 300px;
     }
 
-    .game-over button {
-        margin-top: 10px;
-        padding: 8px 16px;
-        background-color: #4caf50;
-        color: white;
-        border: none;
-        border-radius: 4px;
-        cursor: pointer;
+    .game-over h2 {
+        margin: 0 0 10px 0;
+        color: #333;
     }
 
-    .game-over button:hover {
-        background-color: #45a049;
+    .game-over p {
+        margin: 0 0 20px 0;
+        color: #666;
+    }
+
+    @@media screen and (min-width: 768px) {
+        .mobile-container {
+            max-width: 800px;
+        }
+
+        .field-container {
+            max-width: 800px;
+        }
+
+        .mobile-controls {
+            display: none;
+        }
+    }
+
+    @@media screen and (max-width: 767px) {
+        .soccer-field {
+            touch-action: none;
+        }
     }
 </style>
