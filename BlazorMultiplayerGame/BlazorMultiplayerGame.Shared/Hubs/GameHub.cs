@@ -8,8 +8,8 @@ namespace BlazorMultiplayerGame.Shared.Hubs
     public class GameHub : Hub
     {
         private static GameState _gameState = new();
-        private const float FIELD_WIDTH = 20f;
-        private const float FIELD_HEIGHT = 10f;
+        private const float FIELD_WIDTH = 10f;
+        private const float FIELD_HEIGHT = 20f;
         private const float GOAL_WIDTH = 3f;
         private const float PLAYER_SPEED = 0.2f;
         private const float BALL_SPEED = 0.3f;
@@ -24,8 +24,10 @@ namespace BlazorMultiplayerGame.Shared.Hubs
             }
 
             var side = _gameState.Players.Count == 0 ? PlayerSide.Left : PlayerSide.Right;
-            var startX = side == PlayerSide.Left ? 2f : FIELD_WIDTH - 2f;
-            var startY = FIELD_HEIGHT / 2f;
+
+            // Center players vertically in their respective halves
+            var startY = side == PlayerSide.Left ? FIELD_HEIGHT * 0.25f : FIELD_HEIGHT * 0.75f;
+            var startX = FIELD_WIDTH / 2f;
 
             var player = new Player
             {
@@ -57,22 +59,33 @@ namespace BlazorMultiplayerGame.Shared.Hubs
             if (!_gameState.IsGameStarted || !_gameState.Players.TryGetValue(Context.ConnectionId, out var player))
                 return;
 
+            // Normalize direction if not zero
+            if (direction != Vector2.Zero)
+            {
+                direction = Vector2.Normalize(direction);
+            }
+
             // Update player velocity based on input
             player.Velocity = direction * PLAYER_SPEED;
 
-            // Update position
+            // Calculate new position
             var newPosition = player.Position + player.Velocity;
 
-            // Keep player in their half
+            // Boundary checks with buffer
+            const float boundaryBuffer = 0.5f;
+
+            // Horizontal bounds (same for both players)
+            newPosition.X = Math.Clamp(newPosition.X, boundaryBuffer, FIELD_WIDTH - boundaryBuffer);
+
+            // Vertical bounds based on player side
             if (player.Side == PlayerSide.Left)
             {
-                newPosition.X = Math.Clamp(newPosition.X, 0, FIELD_WIDTH / 2);
+                newPosition.Y = Math.Clamp(newPosition.Y, boundaryBuffer, FIELD_HEIGHT / 2 - boundaryBuffer);
             }
             else
             {
-                newPosition.X = Math.Clamp(newPosition.X, FIELD_WIDTH / 2, FIELD_WIDTH);
+                newPosition.Y = Math.Clamp(newPosition.Y, FIELD_HEIGHT / 2 + boundaryBuffer, FIELD_HEIGHT - boundaryBuffer);
             }
-            newPosition.Y = Math.Clamp(newPosition.Y, 0, FIELD_HEIGHT);
 
             player.Position = newPosition;
             await Clients.All.SendAsync("PlayerMoved", player);
@@ -85,13 +98,19 @@ namespace BlazorMultiplayerGame.Shared.Hubs
         {
             var ball = _gameState.Ball;
             var distance = Vector2.Distance(player.Position, ball.Position);
+            var collisionDistance = 1.5f; // Increased collision distance for better gameplay
             
-            if (distance < player.Velocity.Length() + ball.Radius)
+            if (distance < collisionDistance)
             {
-                // Calculate ball velocity based on player's movement
-                var newVelocity = player.Velocity * BALL_SPEED;
-                ball.Velocity = newVelocity;
-                await Clients.All.SendAsync("BallMoved", ball);
+                // Calculate ball velocity based on player's movement and position
+                var direction = ball.Position - player.Position;
+                if (direction != Vector2.Zero)
+                {
+                    direction = Vector2.Normalize(direction);
+                    var speed = player.Velocity.Length() * BALL_SPEED;
+                    ball.Velocity = direction * speed;
+                    await Clients.All.SendAsync("BallMoved", ball);
+                }
             }
         }
 
@@ -105,14 +124,14 @@ namespace BlazorMultiplayerGame.Shared.Hubs
             var newPosition = ball.Position + ball.Velocity;
             var newVelocity = ball.Velocity * FRICTION;
 
-            // Ball collision with walls
+            // Ball collision with top and bottom walls
             if (newPosition.Y <= 0 || newPosition.Y >= FIELD_HEIGHT)
             {
-                newVelocity.Y *= -1;
+                newVelocity.Y *= -0.8f; // Add some energy loss
                 newPosition.Y = Math.Clamp(newPosition.Y, 0, FIELD_HEIGHT);
             }
 
-            // Check for goals
+            // Check for goals (left and right walls)
             if (newPosition.X <= 0)
             {
                 var rightPlayer = _gameState.Players.Values.FirstOrDefault(p => p.Side == PlayerSide.Right);
@@ -149,7 +168,7 @@ namespace BlazorMultiplayerGame.Shared.Hubs
             // Ball collision with side walls
             if (newPosition.X <= 0 || newPosition.X >= FIELD_WIDTH)
             {
-                newVelocity.X *= -1;
+                newVelocity.X *= -0.8f; // Add some energy loss
                 newPosition.X = Math.Clamp(newPosition.X, 0, FIELD_WIDTH);
             }
 
@@ -178,8 +197,8 @@ namespace BlazorMultiplayerGame.Shared.Hubs
             {
                 player.Score = 0;
                 player.Position = new Vector2(
-                    player.Side == PlayerSide.Left ? 2f : FIELD_WIDTH - 2f,
-                    FIELD_HEIGHT / 2f
+                    FIELD_WIDTH / 2f,
+                    player.Side == PlayerSide.Left ? 2f : FIELD_HEIGHT - 2f
                 );
                 player.Velocity = Vector2.Zero;
             }

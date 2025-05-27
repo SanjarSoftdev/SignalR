@@ -45,8 +45,8 @@
                     <!-- Field markings -->
                     <div class="center-circle"></div>
                     <div class="center-line"></div>
-                    <div class="left-goal"></div>
-                    <div class="right-goal"></div>
+                    <div class="top-goal"></div>
+                    <div class="bottom-goal"></div>
 
                     <!-- Players -->
                     @foreach (var player in players.Values)
@@ -55,7 +55,7 @@
                         var y = (player.Position.Y / fieldHeight) * 100;
                         <div class="player @(player.Side == PlayerSide.Left ? "left-player" : "right-player")"
                              style="left: @(x)%; top: @(y)%">
-                            @player.Name.Substring(0, 1)
+                            <span class="player-sticker">@(player.Side == PlayerSide.Left ? "😁" : "😎")</span>
                         </div>
                     }
 
@@ -64,7 +64,9 @@
                     {
                         var ballX = (gameState.Ball.Position.X / fieldWidth) * 100;
                         var ballY = (gameState.Ball.Position.Y / fieldHeight) * 100;
-                        <div class="ball" style="left: @(ballX)%; top: @(ballY)%"></div>
+                        <div class="ball" style="left: @(ballX)%; top: @(ballY)%">
+                            <span class="ball-sticker">⚽</span>
+                        </div>
                     }
                 </div>
             </div>
@@ -72,12 +74,12 @@
             <!-- Mobile Controls -->
             <div class="mobile-controls">
                 <div class="control-pad">
-                    <button @ontouchstart="() => HandleDirectionTouch(new Vector2(0, -1))" 
-                            @ontouchend="() => HandleDirectionTouch(Vector2.Zero)"
-                            class="control-btn up">↑</button>
                     <button @ontouchstart="() => HandleDirectionTouch(new Vector2(-1, 0))" 
                             @ontouchend="() => HandleDirectionTouch(Vector2.Zero)"
                             class="control-btn left">←</button>
+                    <button @ontouchstart="() => HandleDirectionTouch(new Vector2(0, -1))" 
+                            @ontouchend="() => HandleDirectionTouch(Vector2.Zero)"
+                            class="control-btn up">↑</button>
                     <button @ontouchstart="() => HandleDirectionTouch(new Vector2(0, 1))" 
                             @ontouchend="() => HandleDirectionTouch(Vector2.Zero)"
                             class="control-btn down">↓</button>
@@ -107,8 +109,8 @@
     private string myId;
     private Dictionary<string, Player> players = new();
     private GameState gameState;
-    private const float fieldWidth = 20f;
-    private const float fieldHeight = 10f;
+    private const float fieldWidth = 10f;
+    private const float fieldHeight = 20f;
     private System.Threading.Timer gameLoopTimer;
     private Vector2 currentDirection = Vector2.Zero;
     private TouchPoint? touchStart;
@@ -185,7 +187,8 @@
         if (!gameStarted || gameState?.Winner != null)
             return;
 
-        var direction = Vector2.Zero;
+        var direction = currentDirection;
+
         switch (e.Key)
         {
             case "ArrowUp":
@@ -200,9 +203,12 @@
             case "ArrowRight":
                 direction.X = 1;
                 break;
+            case " ":
+            case "Spacebar":
+                break;
         }
 
-        if (direction != Vector2.Zero)
+        if (direction != currentDirection)
         {
             currentDirection = direction;
             await MovePlayer(direction);
@@ -234,7 +240,14 @@
         var touch = e.Touches.First();
         var deltaX = touch.ClientX - touchStart.ClientX;
         var deltaY = touch.ClientY - touchStart.ClientY;
-        
+
+        // Deadzone to prevent tiny movements
+        if (Math.Abs(deltaX) < 10 && Math.Abs(deltaY) < 10)
+        {
+            await MovePlayer(Vector2.Zero);
+            return;
+        }
+
         // Normalize the direction vector
         var length = Math.Sqrt(deltaX * deltaX + deltaY * deltaY);
         if (length > 0)
@@ -395,12 +408,13 @@
     .field-container {
         position: relative;
         width: 100%;
-        max-width: 500px;
-        aspect-ratio: 2/1;
+        max-width: 300px;
+        aspect-ratio: 1/2;
         border: 2px solid #333;
         background-color: #4caf50;
         border-radius: 8px;
         overflow: hidden;
+        margin: 0 auto;
     }
 
     .soccer-field {
@@ -416,7 +430,7 @@
         left: 50%;
         top: 50%;
         transform: translate(-50%, -50%);
-        width: 20%;
+        width: 30%;
         aspect-ratio: 1/1;
         border: 2px solid white;
         border-radius: 50%;
@@ -431,7 +445,7 @@
         background-color: white;
     }
 
-    .left-goal, .right-goal {
+    .top-goal, .bottom-goal {
         position: absolute;
         top: 50%;
         transform: translateY(-50%);
@@ -440,50 +454,62 @@
         background-color: white;
     }
 
-    .left-goal {
+    .top-goal {
         left: 0;
     }
 
-    .right-goal {
+    .bottom-goal {
         right: 0;
     }
 
     .player {
         position: absolute;
-        width: 8%;
+        width: 12%;  /* Slightly smaller for better visibility */
         aspect-ratio: 1/1;
-        border-radius: 50%;
+        transform: translate(-50%, -50%);
+        z-index: 2;
         display: flex;
         align-items: center;
         justify-content: center;
-        color: white;
-        font-weight: bold;
-        transform: translate(-50%, -50%);
-        font-size: clamp(12px, 2vw, 16px);
+        pointer-events: none; /* Prevent player from blocking touch events */
+    }
+
+    .player-sticker {
+        font-size: 2rem;  /* Slightly smaller font size */
+        line-height: 1;
+        filter: drop-shadow(0 2px 2px rgba(0,0,0,0.3));
     }
 
     .left-player {
-        background-color: #2196f3;
+        filter: none;
     }
 
     .right-player {
-        background-color: #f44336;
+        filter: none;
     }
 
     .ball {
         position: absolute;
-        width: 5%;
+        width: 8%;
         aspect-ratio: 1/1;
-        background-color: white;
-        border-radius: 50%;
         transform: translate(-50%, -50%);
-        box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+        z-index: 1;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        pointer-events: none; /* Prevent ball from blocking touch events */
+    }
+
+    .ball-sticker {
+        font-size: 1.5rem;
+        line-height: 1;
+        filter: drop-shadow(0 2px 2px rgba(0,0,0,0.3));
     }
 
     .mobile-controls {
         width: 100%;
-        max-width: 300px;
-        margin-top: 20px;
+        max-width: 200px;
+        margin: 20px auto;
     }
 
     .control-pad {
@@ -492,14 +518,19 @@
         grid-template-rows: repeat(3, 1fr);
         gap: 5px;
         aspect-ratio: 1/1;
+        background-color: rgba(0, 0, 0, 0.1);
+        padding: 10px;
+        border-radius: 12px;
+        max-width: 150px; /* Smaller control pad */
+        margin: 0 auto;
     }
 
     .control-btn {
-        background-color: rgba(255, 255, 255, 0.2);
-        border: 2px solid rgba(255, 255, 255, 0.4);
+        background-color: rgba(255, 255, 255, 0.3);
+        border: 2px solid rgba(255, 255, 255, 0.5);
         border-radius: 8px;
         color: white;
-        font-size: 1.5rem;
+        font-size: 1.2rem; /* Smaller font size */
         display: flex;
         align-items: center;
         justify-content: center;
@@ -507,10 +538,14 @@
         user-select: none;
         -webkit-user-select: none;
         touch-action: manipulation;
+        aspect-ratio: 1/1;
+        min-width: 40px; /* Minimum size for touch targets */
+        min-height: 40px;
     }
 
     .control-btn:active {
-        background-color: rgba(255, 255, 255, 0.4);
+        background-color: rgba(255, 255, 255, 0.5);
+        transform: scale(0.95);
     }
 
     .up { grid-column: 2; grid-row: 1; }
@@ -545,11 +580,11 @@
 
     @@media screen and (min-width: 768px) {
         .mobile-container {
-            max-width: 800px;
+            max-width: 600px;
         }
 
         .field-container {
-            max-width: 800px;
+            max-width: 400px;
         }
 
         .mobile-controls {
@@ -560,6 +595,10 @@
     @@media screen and (max-width: 767px) {
         .soccer-field {
             touch-action: none;
+        }
+
+        .field-container {
+            max-width: 300px;
         }
     }
 </style>
