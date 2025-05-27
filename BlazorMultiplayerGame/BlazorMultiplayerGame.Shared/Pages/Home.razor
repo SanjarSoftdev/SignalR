@@ -1,0 +1,136 @@
+﻿@page "/"
+@using BlazorMultiplayerGame.Shared.Hubs
+@inject NavigationManager Navigation
+@inject IJSRuntime JS
+@implements IDisposable
+
+<h1>Multiplayer Game</h1>
+
+@if (!joined)
+{
+    <div>
+        <input @bind="playerName" placeholder="Your name" />
+        <button @onclick="JoinGame">Join Game</button>
+    </div>
+}
+else
+{
+    <div class="game-container">
+        <div class="game-board">
+            @for (int y = 0; y < 10; y++)
+            {
+                <div class="game-row">
+                    @for (int x = 0; x < 10; x++)
+                    {
+                        <div class="game-cell" @onclick="() => MoveTo(x, y)">
+                            @foreach (var player in players.Values)
+                            {
+                                @if (player.X == x && player.Y == y)
+                                {
+                                    <span class="player" style="color:@(player.Id == myId ? "red" : "blue")">
+                                        @player.Name.Substring(0, 1)
+                                    </span>
+                                }
+                            }
+                        </div>
+                    }
+                </div>
+            }
+        </div>
+        <div class="players-list">
+            <h3>Players (@players.Count)</h3>
+            <ul>
+                @foreach (var player in players.Values)
+                {
+                    <li>@player.Name (@player.X, @player.Y)</li>
+                }
+            </ul>
+        </div>
+    </div>
+}
+
+@code {
+    private HubConnection hubConnection;
+    private string playerName = "Player" + Random.Shared.Next(1000);
+    private bool joined = false;
+    private string myId;
+    private Dictionary<string, Player> players = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        var hubConnectionBuilder = new HubConnectionBuilder();
+        hubConnectionBuilder.WithUrl(Navigation.ToAbsoluteUri("/gamehub"));
+        hubConnection = hubConnectionBuilder.Build();
+
+        hubConnection.On<Player>("PlayerJoined", (player) =>
+        {
+            players[player.Id] = player;
+            InvokeAsync(StateHasChanged);
+        });
+
+        hubConnection.On<Player>("PlayerMoved", (player) =>
+        {
+            players[player.Id] = player;
+            InvokeAsync(StateHasChanged);
+        });
+
+        hubConnection.On<string>("PlayerLeft", (playerId) =>
+        {
+            players.Remove(playerId);
+            InvokeAsync(StateHasChanged);
+        });
+
+        hubConnection.On<IEnumerable<Player>>("AllPlayers", (allPlayers) =>
+        {
+            players = allPlayers.ToDictionary(p => p.Id);
+            InvokeAsync(StateHasChanged);
+        });
+
+        await hubConnection.StartAsync();
+    }
+
+    private async Task JoinGame()
+    {
+        await hubConnection.SendAsync("JoinGame", playerName);
+        joined = true;
+        myId = hubConnection.ConnectionId;
+    }
+
+    private async Task MoveTo(int x, int y)
+    {
+        await hubConnection.SendAsync("MovePlayer", x, y);
+    }
+
+    public void Dispose()
+    {
+        _ = hubConnection.DisposeAsync();
+    }
+}
+
+<style>
+    .game-container {
+        display: flex;
+    }
+    .game-board {
+        margin-right: 20px;
+    }
+    .game-row {
+        display: flex;
+    }
+    .game-cell {
+        width: 40px;
+        height: 40px;
+        border: 1px solid #ccc;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+    }
+    .player {
+        font-weight: bold;
+    }
+    .players-list {
+        border: 1px solid #ccc;
+        padding: 10px;
+    }
+</style>
